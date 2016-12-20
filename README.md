@@ -15,23 +15,23 @@ Short:    Long:               Description:                      Status:
 EXAMPLARY USAGE (from cmd line / terminal):
 
 1. To download file to specified directory (short parameters):
->>> https_dwnld.py -u <user> -p <pass> -f <url_to_file> -d <file_save_dir>
+> https_dwnld.py -u user -p pass -f url_to_file -d file_save_dir
 
 2. To download file to specified directory (long parameters):
->>> https_dwnld.py --user <user> --password <pass> --file_url <url_to_file>
---save_directory <file_save_dir>
+> https_dwnld.py --user user --password pass --file_url url_to_file
+--save_directory file_save_dir
 
 3. To print file text content /for text files only/ (short parameters):
->>> https_dwnld.py -u <user> -p <pass> -f <url_to_file> -d <file_save_dir> -o
+> https_dwnld.py -u user -p pass -f url_to_file -d file_save_dir -o
 
 4. To print file text content /for text files only/ (short parameters):
->>> https_dwnld.py --user <user> --password <pass> --file_url <url_to_file>
---save_directory <file_save_dir> --only_show
+> https_dwnld.py --user user --password pass --file_url url_to_file
+--save_directory file_save_dir --only_show
 
 5. To do any of the above but w/o displaying progress bar in terminal add '-s'
 or '--silent' just like:
->>> https_dwnld.py --user <user> --password <pass> --file_url <url_to_file>
---save_directory <file_save_dir> --only_show --silent
+> https_dwnld.py --user user --password pass --file_url url_to_file
+--save_directory file_save_dir --only_show --silent
 
 OUTPUT:
 If everything worked fine script returns 'Completed' string to the console. If
