@@ -5,8 +5,8 @@
 
 ORIGINAL FILE NAME:                                              https_dwnld.py
 
-ARGUMENTS:                                                                    
-Short:    Long:               Description:                      Status:        
+ARGUMENTS:
+Short:    Long:               Description:                      Status:
 -h        --help              show help for this script                optional
 -u        --user              user name for url login                obligatory
 -p        --password          password for url login                 obligatory
@@ -16,6 +16,7 @@ Short:    Long:               Description:                      Status:
 -s        --silent            use to hide progress bar                 optional
 
 EXAMPLARY USAGE (from cmd line / terminal):
+/----- disclaimer - put your own values in place of <some_argument_name> -----/
 
 1. To download file to specified directory (short parameters):
 >>> https_dwnld.py -u <user> -p <pass> -f <url_to_file> -d <file_save_dir>
@@ -27,7 +28,7 @@ EXAMPLARY USAGE (from cmd line / terminal):
 3. To print file text content /for text files only/ (short parameters):
 >>> https_dwnld.py -u <user> -p <pass> -f <url_to_file> -d <file_save_dir> -o
 
-4. To print file text content /for text files only/ (short parameters):
+4. To print file text content /for text files only/ (long parameters):
 >>> https_dwnld.py --user <user> --password <pass> --file_url <url_to_file>
 --save_directory <file_save_dir> --only_show
 
@@ -43,13 +44,18 @@ of 'Completed' string. In case of any error an 'Error' string will be returned
 with no additional information.
 """
 
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 __author__ = "K. Dziadowiec (krzysztof.dziadowiec@gmail.com)"
 
 import os
 import sys
-import requests
 import getopt
+import urllib2
+try:
+    import requests
+    NATIVE = False
+except ImportError:
+    NATIVE = True
 
 SLASH = "\\" if sys.platform == "win32" else "/"
 
@@ -110,6 +116,90 @@ def download_file(user, password, file_url, save_directory,
     sys.stdout.flush()
 
     return output
+
+
+def download_file_native(user, password, file_url, save_directory,
+                         only_show=False, silent=False):
+    """Call to download file or print its content to terminal.
+
+    This function does exactly the same as download_file() but using nativ
+    python packege urllib2 instead of requests.
+
+    Required keyword arguments:
+    user -- user name required for login
+    password -- password required for login
+    file_url -- complete url to file being downloaded
+    save_directory -- path to dir that downloaded file will be saved to
+
+    Optional keyword arguments:
+    only_show -- set True to print content instead of downloading the file
+    silent -- set True to hide downloading progress bar in terminal
+
+    Returns string:
+    Completed -- if file has been downloaded succesfully
+    Error -- in case of any error
+    <file text content> -- if only_show has been used
+    """
+    file_name = file_url.split("/")[-1]
+    top_level_url = file_url[:-len(file_name)]
+    file_save_path = save_directory + SLASH + file_name
+
+    if os.path.isfile(file_save_path):
+        os.remove(file_save_path)
+
+    opener = create_opener(user, password, top_level_url)
+
+    try:
+        file, file_size = open_file(opener, file_url)
+
+        if not only_show:
+            read_size = int(file_size) // 50
+
+            with open(file_save_path, 'ab') as output:
+                if read_size == 0:
+                    output.write(file.read(int(file_size)))
+                else:
+                    for i in range(51):
+                        output.write(file.read(read_size))
+                        if not silent:
+                            print_progress(
+                                i, 50, prefix='Downloading Progress:',
+                                suffix='Complete', bar_length=50)
+                output = 'Completed'
+        else:
+            output = file.read()
+    except urllib2.HTTPError, e:
+        output = 'Error'
+    except urllib2.URLError, e:
+        output = 'Error'
+
+    sys.stdout.write(output)
+    sys.stdout.flush()
+
+    return output
+
+
+def create_opener(user, password, top_level_url):
+
+    password_mgr = urllib2.HTTPPasswordMgrWithDefaultRealm()
+    password_mgr.add_password(None, top_level_url, user, password)
+    handler = urllib2.HTTPBasicAuthHandler(password_mgr)
+    opener = urllib2.build_opener(handler)
+
+    return opener
+
+
+def open_file(opener, file_url):
+
+    opener.open(file_url)
+    urllib2.install_opener(opener)
+    try:
+        file = urllib2.urlopen(file_url)
+    except:
+        raise
+    file_size = file.info().getheader('Content-Length').strip()
+
+    return file, file_size
 
 
 def print_progress(iteration, total, prefix='', suffix='',
@@ -174,8 +264,13 @@ if __name__ == "__main__":
         elif opt in ("-s", "--silent"):
             silent = True
 
-    download_file(user=user, password=password,
-                  file_url=file_url, save_directory=save_directory,
-                  only_show=only_show, silent=silent)
+    if not NATIVE:
+        download_file(user=user, password=password,
+                      file_url=file_url, save_directory=save_directory,
+                      only_show=only_show, silent=silent)
+    else:
+        download_file_native(user=user, password=password,
+                             file_url=file_url, save_directory=save_directory,
+                             only_show=only_show, silent=silent)
 
     sys.exit(0)
