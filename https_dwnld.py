@@ -1,276 +1,304 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""This script allows to download file from user&password protected https url.
+"""This script allows to download file from password protected https urls.
 
-ORIGINAL FILE NAME:                                              https_dwnld.py
+USAGE:
+    https_dwnld.py <user> <pass> <url> [action] [flags]
 
-ARGUMENTS:
-Short:    Long:               Description:                      Status:
--h        --help              show help for this script                optional
--u        --user              user name for url login                obligatory
--p        --password          password for url login                 obligatory
--f        --file_url          complete url to downloaded file        obligatory
--d        --save_directory    path to file save directory            obligatory
--o        --only_show         use to print instead of dwnld            optional
--s        --silent            use to hide progress bar                 optional
+    where:
+        <user> - HTTP Basic Auto user name
+        <password> - HTTP Basic Auto user password
+        <url> - URL of a file to be downloaded
 
-EXAMPLARY USAGE (from cmd line / terminal):
-/----- disclaimer - put your own values in place of <some_argument_name> -----/
+        [action] is required and must be only one of the following:
+            -o/--out <path>     : download file output directory path
+            -s/--show           : print file content to console
 
-1. To download file to specified directory (short parameters):
->>> https_dwnld.py -u <user> -p <pass> -f <url_to_file> -d <file_save_dir>
-
-2. To download file to specified directory (long parameters):
->>> https_dwnld.py --user <user> --password <pass> --file_url <url_to_file>
---save_directory <file_save_dir>
-
-3. To print file text content /for text files only/ (short parameters):
->>> https_dwnld.py -u <user> -p <pass> -f <url_to_file> -d <file_save_dir> -o
-
-4. To print file text content /for text files only/ (long parameters):
->>> https_dwnld.py --user <user> --password <pass> --file_url <url_to_file>
---save_directory <file_save_dir> --only_show
-
-5. To do any of the above but w/o displaying progress bar in terminal add '-s'
-or '--silent' just like:
->>> https_dwnld.py --user <user> --password <pass> --file_url <url_to_file>
---save_directory <file_save_dir> --only_show --silent
-
-OUTPUT:
-If everything worked fine script returns 'Completed' string to the console. If
-option show_only was used script will return file text content string instead
-of 'Completed' string. In case of any error an 'Error' string will be returned
-with no additional information.
+        [flags] are optional and can be all of the following:
+            --debug             : increase logging verbosity
+            --hide_progress     : hide download progress bar
 """
 
-__version__ = "1.0.4"
-__author__ = "K. Dziadowiec (krzysztof.dziadowiec@gmail.com)"
+from __future__ import division
 
 import os
 import sys
-import getopt
-import urllib2
+import math
+import argparse
+import logging
+import ssl
+
+__version__ = "2.0.1"
+__author__ = "K. Dziadowiec (krzysztof.dziadowiec@gmail.com)"
+
+logger = logging.getLogger(__name__)
+
+# NOTE: PEP 476
+if hasattr(ssl, '_create_unverified_context'):
+    ssl._create_default_https_context = ssl._create_unverified_context
+
+NATIVE = False
 try:
     import requests
-    NATIVE = False
-except ImportError:
+except ImportError as e:
     NATIVE = True
+    if sys.version_info >= (3, 0):
+        from urllib.error import HTTPError, URLError
+        from urllib.request import (urlopen, HTTPPasswordMgrWithDefaultRealm,
+                                    HTTPBasicAuthHandler, build_opener,
+                                    install_opener)
+    else:
+        from urllib2 import (urlopen, HTTPError, URLError, build_opener,
+                             install_opener, HTTPPasswordMgrWithDefaultRealm,
+                             HTTPBasicAuthHandler)
 
-SLASH = "\\" if sys.platform == "win32" else "/"
 
+def download_file(user, password, url, out_dir=None, show=False,
+                  hide_progress=False):
+    """Download a file or print its content to terminal. Uses requests.
 
-def download_file(user, password, file_url, save_directory,
-                  only_show=False, silent=False):
-    """Call to download file or print its content to terminal.
-
-    Required keyword arguments:
-    user -- user name required for login
-    password -- password required for login
-    file_url -- complete url to file being downloaded
-    save_directory -- path to dir that downloaded file will be saved to
-
-    Optional keyword arguments:
-    only_show -- set True to print content instead of downloading the file
-    silent -- set True to hide downloading progress bar in terminal
-
-    Returns string:
-    Completed -- if file has been downloaded succesfully
-    Error -- in case of any error
-    <file text content> -- if only_show has been used
+    The return values are:
+        `Completed`   -- if all specified actions have been completed
+        `Error`       -- in case of any error
     """
-    file_name = file_url.split("/")[-1]
-    file_save_path = save_directory + SLASH + file_name
-
-    if os.path.isfile(file_save_path):
-        os.remove(file_save_path)
-
     try:
-        file = requests.get(file_url, auth=(user, password), stream=True)
+        file = requests.get(url, auth=(user, password), stream=True)
 
         if file.status_code is not requests.codes.ok:
-            output = "Error"
-        else:
-            if not only_show:
-                file_size = int(file.headers['content-length'])
-                read_size = int(file_size) // 50
+            logger.error('URL Status Code: {}'.format(file.status_code))
+            return 'Error'
 
-                with open(file_save_path, 'ab') as output:
-                    if read_size == 0:
-                        output.write(file.content)
-                    else:
-                        for i, chunk in enumerate(
-                                file.iter_content(chunk_size=read_size)):
-                            output.write(chunk)
-                            if not silent:
-                                print_progress(
-                                    i, 50, prefix='Downloading Progress:',
-                                    suffix='Complete', bar_length=50)
-                    output = "Completed"
-            else:
-                output = file.content
-    except requests.exceptions.ConnectionError:
-        output = 'Error'
+        if not bool(out_dir) ^ show:
+            raise ValueError('Arguments `out_dir` and `show` are exclusive.')
 
-    sys.stdout.write(output)
-    sys.stdout.flush()
+        if show:
+            print(file.content)
+        elif out_dir:
+            file_name = url.split("/")[-1]
+            save_path = os.path.join(os.path.abspath(out_dir), file_name)
+            logger.debug('downloading to: {}'.format(save_path))
 
-    return output
+            try:
+                os.remove(save_path)
+            except OSError:
+                pass
+
+            file_size = int(file.headers['content-length'])
+            logger.debug('file size: {}'.format(file_size))
+            chunk_size = 1024
+            logger.debug('chunk size: {}'.format(chunk_size))
+            chunk_count = int(math.ceil(file_size / chunk_size))
+            logger.debug('chunk count: {}'.format(chunk_count))
+
+            with open(save_path, 'ab') as output:
+                chunks = file.iter_content(chunk_size=chunk_size)
+                for i, chunk in enumerate(chunks):
+                    output.write(chunk)
+                    if hide_progress:
+                        continue
+                    print_progress(i + 1, chunk_count, bar_length=50,
+                                   prefix='Downloading Progress:')
+            logger.debug('downloaded size: {}'.format(
+                os.path.getsize(save_path)))
+
+    except requests.exceptions.ConnectionError as e:
+        logger.error(e)
+        return 'Error'
+    except FileNotFoundError as e:
+        logger.error(e)
+        return 'Error'
+    else:
+        return 'Completed'
 
 
-def download_file_native(user, password, file_url, save_directory,
-                         only_show=False, silent=False):
-    """Call to download file or print its content to terminal.
+def download_file_native(user, password, url, out_dir=None, show=False,
+                         hide_progress=False):
+    """Download a file or print its content to terminal. Uses urllib2/urllib.
 
-    This function does exactly the same as download_file() but using nativ
-    python packege urllib2 instead of requests.
-
-    Required keyword arguments:
-    user -- user name required for login
-    password -- password required for login
-    file_url -- complete url to file being downloaded
-    save_directory -- path to dir that downloaded file will be saved to
-
-    Optional keyword arguments:
-    only_show -- set True to print content instead of downloading the file
-    silent -- set True to hide downloading progress bar in terminal
-
-    Returns string:
-    Completed -- if file has been downloaded succesfully
-    Error -- in case of any error
-    <file text content> -- if only_show has been used
+    The return values are:
+        `Completed`   -- if all specified actions have been completed
+        `Error`       -- in case of any error
     """
-    file_name = file_url.split("/")[-1]
-    top_level_url = file_url[:-len(file_name)]
-    file_save_path = save_directory + SLASH + file_name
-
-    if os.path.isfile(file_save_path):
-        os.remove(file_save_path)
-
-    opener = create_opener(user, password, top_level_url)
-
     try:
-        file, file_size = open_file(opener, file_url)
+        file = url_get(url, user, password)
 
-        if not only_show:
-            read_size = int(file_size) // 50
+        if not bool(out_dir) ^ show:
+            raise ValueError('Arguments `out_dir` and `show` are exclusive.')
 
-            with open(file_save_path, 'ab') as output:
-                if read_size == 0:
-                    output.write(file.read(int(file_size)))
-                else:
-                    for i in range(51):
-                        output.write(file.read(read_size))
-                        if not silent:
-                            print_progress(
-                                i, 50, prefix='Downloading Progress:',
-                                suffix='Complete', bar_length=50)
-                output = 'Completed'
-        else:
-            output = file.read()
-    except urllib2.HTTPError, e:
-        output = 'Error'
-    except urllib2.URLError, e:
-        output = 'Error'
+        if show:
+            print(file.read())
+        elif out_dir:
+            file_name = url.split("/")[-1]
+            save_path = os.path.join(os.path.abspath(out_dir), file_name)
+            logger.debug('downloading to: {}'.format(save_path))
 
-    sys.stdout.write(output)
-    sys.stdout.flush()
+            try:
+                os.remove(save_path)
+            except OSError:
+                pass
 
-    return output
+            if sys.version_info >= (3, 0):
+                file_size = int(file.info()['content-length'])
+            else:
+                file_size = int(file.info().getheader(
+                    'Content-Length').strip())
+            logger.debug('file size: {}'.format(file_size))
+            chunk_size = 1024
+            logger.debug('chunk size: {}'.format(chunk_size))
+            chunk_count = int(math.ceil(file_size / chunk_size))
+            logger.debug('chunk count: {}'.format(chunk_count))
+
+            with open(save_path, 'ab') as output:
+                for i in range(chunk_count):
+                    chunk = file.read(chunk_size)
+                    output.write(chunk)
+                    if hide_progress:
+                        continue
+                    print_progress(i + 1, chunk_count, bar_length=50,
+                                   prefix='Downloading Progress:')
+            logger.debug('downloaded size: {}'.format(
+                os.path.getsize(save_path)))
+
+    except HTTPError as e:
+        logger.error(e)
+        return 'Error'
+    except URLError as e:
+        logger.error(e)
+        return 'Error'
+    except FileNotFoundError as e:
+        logger.error(e)
+        return 'Error'
+    else:
+        return 'Completed'
 
 
-def create_opener(user, password, top_level_url):
+def url_get(url, user, password):
+    top_level_url = url.rsplit('/', 1)
 
-    password_mgr = urllib2.HTTPPasswordMgrWithDefaultRealm()
+    password_mgr = HTTPPasswordMgrWithDefaultRealm()
     password_mgr.add_password(None, top_level_url, user, password)
-    handler = urllib2.HTTPBasicAuthHandler(password_mgr)
-    opener = urllib2.build_opener(handler)
 
-    return opener
+    handler = HTTPBasicAuthHandler(password_mgr)
 
+    opener = build_opener(handler)
+    opener.open(url)
+    install_opener(opener)
 
-def open_file(opener, file_url):
-
-    opener.open(file_url)
-    urllib2.install_opener(opener)
-    try:
-        file = urllib2.urlopen(file_url)
-    except:
-        raise
-    file_size = file.info().getheader('Content-Length').strip()
-
-    return file, file_size
+    return urlopen(url)
 
 
-def print_progress(iteration, total, prefix='', suffix='',
-                   decimals=1, bar_length=100):
+def print_progress(iteration, total, prefix='', suffix='', decimals=1,
+                   bar_length=100):
     """Call in a loop to create terminal progress bar.
 
-    Required keyword arguments:
-    iteration -- current iteration
-    total -- total iterations
+    Positional arguments:
+        iteration -- current iteration
+        total -- total iterations
 
-    Optional keyword arguments:
-    prefix -- prefix string (default '')
-    suffix -- suffix string (default '')
-    decimals -- positive number of decimals in percent complete (default 1)
-    bar_length -- character length of bar (default 100)
+    Optional arguments:
+        prefix -- prefix string (default '')
+        suffix -- suffix string (default '')
+        decimals -- positive number of decimals in percent complete (default 1)
+        bar_length -- character length of bar (default 100)
     """
-    str_format = "{0:." + str(decimals) + "f}"
-    percents = str_format.format(100 * (iteration / float(total)))
+    BAR_FILL = u'█' if sys.version_info >= (3, 0) else '█'
+    percents = '{0:.{d}f}'.format(100 * (iteration / float(total)),
+                                  d=decimals)
     filled_length = int(round(bar_length * iteration / float(total)))
-    bar = u'█' * filled_length + '-' * (bar_length - filled_length)
+    bar = '|{:-<{w}}|'.format(BAR_FILL * filled_length, w=bar_length)
+    progress_bar = '\r{prefix} {bar} {percents}% {suffix}'.format(
+        prefix=prefix, bar=bar, percents=percents, suffix=suffix)
 
-    sys.stdout.write('\r%s |%s| %s%s %s' %
-                     (prefix, bar, percents, '%', suffix)),
+    sys.stdout.write(progress_bar)
 
     if iteration == total:
         sys.stdout.write('\n')
     sys.stdout.flush()
 
 
-if __name__ == "__main__":
+def parse_args(argv):
+    """Parse command-line args."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-v', '--version',
+        action='version',
+        version=__version__,
+        help='display version and exit')
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='increase logging verbosity')
+    parser.add_argument(
+        'user',
+        type=str,
+        help='HTTP Basic Authentication user')
+    parser.add_argument(
+        'password',
+        type=str,
+        help='HTTP Basic Authentication password')
+    parser.add_argument(
+        'url',
+        type=str,
+        help='URL of a file to be downloaded')
+    parser.add_argument(
+        '--hide_progress',
+        action='store_true',
+        help='hide progress bar')
+    action_group = parser.add_mutually_exclusive_group(required=True)
+    action_group.add_argument(
+        '-o', '--out',
+        type=str,
+        dest='out_dir',
+        help='output directory')
+    action_group.add_argument(
+        '-s', '--show',
+        action='store_true',
+        help='show file content to console')
 
-    only_show = False
-    silent = False
+    return parser.parse_args(argv[1:])
 
-    opts, args = getopt.getopt(
-        sys.argv[1:],
-        "hu:p:f:d:os",
-        ["help", "user=", "password=", "file_url=", "save_directory=",
-         "only_show", "silent"])
 
-    if (len(opts) == 0 or
-            (len(opts) == 1 and opts[0][0] not in ('-h', "--help")) or
-            (len(opts) > 1 and len(opts) < 4) or
-            len(opts) > 6):
-        print "Incorrect usage. To get help try:\n\nhttps_dwnld.py --help"
-        sys.exit()
+def initialize_logging(debug=False):
+    """Initialize logging."""
+    if debug:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+    logger.setLevel(level)
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
-    for opt, arg in opts:
-        if opt in ('-h', "--help"):
-            print __doc__
-            sys.exit()
-        elif opt in ("-u", "--user"):
-            user = arg
-        elif opt in ("-p", "--password"):
-            password = arg
-        elif opt in ("-f", "--file_url"):
-            file_url = arg
-        elif opt in ("-d", "--save_directory"):
-            save_directory = arg
-        elif opt in ("-o", "--only_show"):
-            only_show = True
-        elif opt in ("-s", "--silent"):
-            silent = True
+
+def run(argv):
+    args = parse_args(argv)
+    initialize_logging(args.debug)
+
+    opts = dict(
+        user=args.user,
+        password=args.password,
+        url=args.url,
+    )
+
+    if args.out_dir:
+        opts.update(out_dir=args.out_dir)
+    if args.show:
+        opts.update(show=args.show)
+    if args.hide_progress:
+        opts.update(hide_progress=args.hide_progress)
 
     if not NATIVE:
-        download_file(user=user, password=password,
-                      file_url=file_url, save_directory=save_directory,
-                      only_show=only_show, silent=silent)
+        logger.debug('using `requests` library')
+        retv = download_file(**opts)
     else:
-        download_file_native(user=user, password=password,
-                             file_url=file_url, save_directory=save_directory,
-                             only_show=only_show, silent=silent)
+        logger.debug('using native `urllib` library')
+        retv = download_file_native(**opts)
 
-    sys.exit(0)
+    print(retv)
+
+
+if __name__ == "__main__":
+    run(sys.argv)
