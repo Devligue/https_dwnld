@@ -17,10 +17,10 @@ USAGE:
 
         [flags] are optional and can be all of the following:
             --debug             : increase logging verbosity
-            --hide_progress     : hide download progress bar
+            -r/--raw            : hide download progress bar
 """
 
-from __future__ import division
+from __future__ import division, print_function
 
 import os
 import sys
@@ -29,7 +29,7 @@ import argparse
 import logging
 import ssl
 
-__version__ = "2.0.1"
+__version__ = "2.1.0"
 __author__ = "K. Dziadowiec (krzysztof.dziadowiec@gmail.com)"
 
 logger = logging.getLogger(__name__)
@@ -55,12 +55,13 @@ except ImportError as e:
 
 
 def download_file(user, password, url, out_dir=None, show=False,
-                  hide_progress=False):
+                  raw=False):
     """Download a file or print its content to terminal. Uses requests.
 
     The return values are:
-        `Completed`   -- if all specified actions have been completed
-        `Error`       -- in case of any error
+        `Completed`     -- if downloading has been completed
+        empty string    -- show action has been completed
+        `Error`         -- in case of any error
     """
     try:
         file = requests.get(url, auth=(user, password), stream=True)
@@ -73,7 +74,7 @@ def download_file(user, password, url, out_dir=None, show=False,
             raise ValueError('Arguments `out_dir` and `show` are exclusive.')
 
         if show:
-            print(file.content)
+            print(try_decode(file.content), end='')
         elif out_dir:
             file_name = url.split("/")[-1]
             save_path = os.path.join(os.path.abspath(out_dir), file_name)
@@ -95,7 +96,7 @@ def download_file(user, password, url, out_dir=None, show=False,
                 chunks = file.iter_content(chunk_size=chunk_size)
                 for i, chunk in enumerate(chunks):
                     output.write(chunk)
-                    if hide_progress:
+                    if raw:
                         continue
                     print_progress(i + 1, chunk_count, bar_length=50,
                                    prefix='Downloading Progress:')
@@ -109,16 +110,17 @@ def download_file(user, password, url, out_dir=None, show=False,
         logger.error(e)
         return 'Error'
     else:
-        return 'Completed'
+        return '' if show else 'Completed'
 
 
 def download_file_native(user, password, url, out_dir=None, show=False,
-                         hide_progress=False):
+                         raw=False):
     """Download a file or print its content to terminal. Uses urllib2/urllib.
 
     The return values are:
-        `Completed`   -- if all specified actions have been completed
-        `Error`       -- in case of any error
+        `Completed`     -- if downloading has been completed
+        empty string    -- show action has been completed
+        `Error`         -- in case of any error
     """
     try:
         file = url_get(url, user, password)
@@ -127,7 +129,7 @@ def download_file_native(user, password, url, out_dir=None, show=False,
             raise ValueError('Arguments `out_dir` and `show` are exclusive.')
 
         if show:
-            print(file.read())
+            print(try_decode(file.read()), end='')
         elif out_dir:
             file_name = url.split("/")[-1]
             save_path = os.path.join(os.path.abspath(out_dir), file_name)
@@ -153,7 +155,7 @@ def download_file_native(user, password, url, out_dir=None, show=False,
                 for i in range(chunk_count):
                     chunk = file.read(chunk_size)
                     output.write(chunk)
-                    if hide_progress:
+                    if raw:
                         continue
                     print_progress(i + 1, chunk_count, bar_length=50,
                                    prefix='Downloading Progress:')
@@ -170,7 +172,7 @@ def download_file_native(user, password, url, out_dir=None, show=False,
         logger.error(e)
         return 'Error'
     else:
-        return 'Completed'
+        return '' if show else 'Completed'
 
 
 def url_get(url, user, password):
@@ -217,6 +219,13 @@ def print_progress(iteration, total, prefix='', suffix='', decimals=1,
     sys.stdout.flush()
 
 
+def try_decode(byte_string):
+    try:
+        return byte_string.decode('utf-8')
+    except UnicodeDecodeError:
+        return byte_string
+
+
 def parse_args(argv):
     """Parse command-line args."""
     parser = argparse.ArgumentParser()
@@ -242,7 +251,8 @@ def parse_args(argv):
         type=str,
         help='URL of a file to be downloaded')
     parser.add_argument(
-        '--hide_progress',
+        '-r',
+        '--raw',
         action='store_true',
         help='hide progress bar')
     action_group = parser.add_mutually_exclusive_group(required=True)
@@ -250,7 +260,7 @@ def parse_args(argv):
         '-o', '--out',
         type=str,
         dest='out_dir',
-        help='output directory')
+        help='downloading output directory')
     action_group.add_argument(
         '-s', '--show',
         action='store_true',
@@ -287,8 +297,8 @@ def run(argv):
         opts.update(out_dir=args.out_dir)
     if args.show:
         opts.update(show=args.show)
-    if args.hide_progress:
-        opts.update(hide_progress=args.hide_progress)
+    if args.raw:
+        opts.update(raw=args.raw)
 
     if not NATIVE:
         logger.debug('using `requests` library')
@@ -297,7 +307,7 @@ def run(argv):
         logger.debug('using native `urllib` library')
         retv = download_file_native(**opts)
 
-    print(retv)
+    print(retv, end='')
 
 
 if __name__ == "__main__":
