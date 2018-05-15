@@ -25,11 +25,10 @@ from __future__ import division, print_function
 import os
 import sys
 import math
-import argparse
 import logging
 import ssl
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 __author__ = "K. Dziadowiec (krzysztof.dziadowiec@gmail.com)"
 
 logger = logging.getLogger(__name__)
@@ -52,6 +51,11 @@ except ImportError as e:
         from urllib2 import (urlopen, HTTPError, URLError, build_opener,
                              install_opener, HTTPPasswordMgrWithDefaultRealm,
                              HTTPBasicAuthHandler)
+
+if sys.version_info < (2, 7, 15):
+    import optparse
+else:
+    import argparse
 
 
 def download_file(user, password, url, out_dir=None, show=False,
@@ -227,44 +231,145 @@ def try_decode(byte_string):
 
 
 def parse_args(argv):
+    if sys.version_info < (2, 7, 15):
+        return _parse_args_optparse(argv)
+    else:
+        return _parse_args_argparse(argv)
+
+
+def _parse_args_optparse(argv):
+    class PAOptionParser(optparse.OptionParser, object):
+        def __init__(self, *args, **kw):
+            self.posargs = []
+            super(PAOptionParser, self).__init__(*args, **kw)
+
+        def add_posarg(self, *args, **kw):
+            pa_help = kw.get("help", "")
+            kw["help"] = optparse.SUPPRESS_HELP
+            o = self.add_option("--%s" % args[0], *args[1:], **kw)
+            self.posargs.append((args[0], pa_help))
+
+        def get_usage(self, *args, **kwargs):
+            self.usage = "%%prog %s [options]\n\nPositional Arguments:\n %s" % \
+                (' '.join(["<%s>" % arg[0] for arg in self.posargs]),
+                 '\n '.join(["%s: %s" % (arg) for arg in self.posargs]))
+            return super(PAOptionParser, self).get_usage(*args, **kwargs)
+
+        def parse_args(self, *args, **kwargs):
+            args = sys.argv[1:]
+            args0 = []
+            for p, v in zip(self.posargs, args):
+                args0.append("--%s" % p[0])
+                args0.append(v)
+            args = args0 + args
+            options, args = super(
+                PAOptionParser, self).parse_args(args, **kwargs)
+            if len(args) < len(self.posargs):
+                msg = 'Missing value(s) for "%s"\n' % ", ".join(
+                    [arg[0] for arg in self.posargs][len(args):])
+                self.error(msg)
+            return options, args
+
+    parser = PAOptionParser(version=__version__)
+    parser.add_option(
+        '--debug',
+        action='store_true',
+        help='increase logging verbosity',
+    )
+    parser.add_posarg(
+        'user',
+        type=str,
+        help='HTTP Basic Authentication user',
+    )
+    parser.add_posarg(
+        'password',
+        type=str,
+        help='HTTP Basic Authentication password',
+    )
+    parser.add_posarg(
+        'url',
+        type=str,
+        help='URL of a file to be downloaded',
+    )
+    parser.add_option(
+        '-r',
+        '--raw',
+        action='store_true',
+        help='hide progress bar',
+    )
+
+    def set_out(option, opt, value, parser):
+        parser.values.out_dir = value
+        parser.values.out_set_explicitly = True
+
+    parser.add_option(
+        '-o', '--out',
+        type=str,
+        dest='out_dir',
+        help='downloading output directory',
+        action='callback',
+        callback=set_out,
+    )
+    parser.add_option(
+        '-s', '--show',
+        action='store_true',
+        help='show file content to console',
+    )
+    options, args = parser.parse_args(argv[1:])
+    parser.values.ensure_value('out_set_explicitly', False)
+    if options.out_set_explicitly and options.s:
+        parser.error('options -o and -s are mutually exclusive')
+
+    return options
+
+
+def _parse_args_argparse(argv):
     """Parse command-line args."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '-v', '--version',
         action='version',
         version=__version__,
-        help='display version and exit')
+        help='display version and exit',
+    )
     parser.add_argument(
         '--debug',
         action='store_true',
-        help='increase logging verbosity')
+        help='increase logging verbosity',
+    )
     parser.add_argument(
         'user',
         type=str,
-        help='HTTP Basic Authentication user')
+        help='HTTP Basic Authentication user',
+    )
     parser.add_argument(
         'password',
         type=str,
-        help='HTTP Basic Authentication password')
+        help='HTTP Basic Authentication password',
+    )
     parser.add_argument(
         'url',
         type=str,
-        help='URL of a file to be downloaded')
+        help='URL of a file to be downloaded',
+    )
     parser.add_argument(
         '-r',
         '--raw',
         action='store_true',
-        help='hide progress bar')
+        help='hide progress bar',
+    )
     action_group = parser.add_mutually_exclusive_group(required=True)
     action_group.add_argument(
         '-o', '--out',
         type=str,
         dest='out_dir',
-        help='downloading output directory')
+        help='downloading output directory',
+    )
     action_group.add_argument(
         '-s', '--show',
         action='store_true',
-        help='show file content to console')
+        help='show file content to console',
+    )
 
     return parser.parse_args(argv[1:])
 
