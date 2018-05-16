@@ -294,6 +294,7 @@ def _parse_args_optparse(argv):
     parser.add_option(
         '-r',
         '--raw',
+        dest='raw',
         action='store_true',
         help='hide progress bar',
     )
@@ -312,12 +313,13 @@ def _parse_args_optparse(argv):
     )
     parser.add_option(
         '-s', '--show',
+        dest='show',
         action='store_true',
         help='show file content to console',
     )
-    options, args = parser.parse_args(argv[1:])
+    options, _ = parser.parse_args(argv[1:])
     parser.values.ensure_value('out_set_explicitly', False)
-    if options.out_set_explicitly and options.s:
+    if options.out_set_explicitly and options.show:
         parser.error('options -o and -s are mutually exclusive')
 
     return options
