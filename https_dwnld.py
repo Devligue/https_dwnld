@@ -28,7 +28,7 @@ import math
 import logging
 import ssl
 
-__version__ = "2.2.0"
+__version__ = "2.2.1"
 __author__ = "K. Dziadowiec (krzysztof.dziadowiec@gmail.com)"
 
 logger = logging.getLogger(__name__)
