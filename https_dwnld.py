@@ -4,20 +4,22 @@
 """This script allows to download file from password protected https urls.
 
 USAGE:
-    https_dwnld.py <user> <pass> <url> [action] [flags]
+    https_dwnld.py <user> <password> <url> [action] [flags]
 
-    where:
-        <user> - HTTP Basic Auto user name
-        <password> - HTTP Basic Auto user password
-        <url> - URL of a file to be downloaded
+    Positional Arguments:
+        <user>      - HTTP Basic Auth user name
+        <password>  - HTTP Basic Auth user password
+        <url>       - URL of a file to be downloaded
 
-        [action] is required and must be only one of the following:
-            -o/--out <path>     : download file output directory path
-            -s/--show           : print file content to console
+    [action] is required and must be only one of the following:
+        -o/--out <path>     : download file output directory path
+        -s/--show           : print file content to console
 
-        [flags] are optional and can be all of the following:
-            --debug             : increase logging verbosity
-            -r/--raw            : hide download progress bar
+    [flags] are optional and can be all of the following:
+        -v/--version        : display version and exit
+        -h/--help           : display help message and exit
+        --debug             : increase logging verbosity
+        -r/--raw            : hide download progress bar
 """
 
 from __future__ import division, print_function
@@ -28,7 +30,7 @@ import math
 import logging
 import ssl
 
-__version__ = "2.2.1"
+__version__ = "2.2.2"
 __author__ = "K. Dziadowiec (krzysztof.dziadowiec@gmail.com)"
 
 logger = logging.getLogger(__name__)
@@ -37,25 +39,41 @@ logger = logging.getLogger(__name__)
 if hasattr(ssl, '_create_unverified_context'):
     ssl._create_default_https_context = ssl._create_unverified_context
 
-NATIVE = False
 try:
+    NATIVE = False
     import requests
 except ImportError as e:
     NATIVE = True
     if sys.version_info >= (3, 0):
         from urllib.error import HTTPError, URLError
-        from urllib.request import (urlopen, HTTPPasswordMgrWithDefaultRealm,
-                                    HTTPBasicAuthHandler, build_opener,
-                                    install_opener)
+        from urllib.request import (
+            urlopen,
+            HTTPPasswordMgrWithDefaultRealm,
+            HTTPBasicAuthHandler,
+            build_opener,
+            install_opener,
+        )
     else:
-        from urllib2 import (urlopen, HTTPError, URLError, build_opener,
-                             install_opener, HTTPPasswordMgrWithDefaultRealm,
-                             HTTPBasicAuthHandler)
+        from urllib2 import (
+            urlopen,
+            HTTPError,
+            URLError,
+            build_opener,
+            install_opener,
+            HTTPPasswordMgrWithDefaultRealm,
+            HTTPBasicAuthHandler,
+        )
 
-if sys.version_info < (2, 7, 15):
-    import optparse
-else:
+try:
     import argparse
+except ImportError:
+    import optparse
+
+# Fixes missing FileNotFoundError in Python 2
+try:
+    FileNotFoundError
+except NameError:
+    FileNotFoundError = IOError
 
 
 def download_file(user, password, url, out_dir=None, show=False,
@@ -64,18 +82,17 @@ def download_file(user, password, url, out_dir=None, show=False,
 
     The return values are:
         `Completed`     -- if downloading has been completed
-        empty string    -- show action has been completed
+        ``              -- show action has been completed
         `Error`         -- in case of any error
     """
+    check_exclusive_positional_args(out_dir, show)
+
     try:
         file = requests.get(url, auth=(user, password), stream=True)
 
         if file.status_code is not requests.codes.ok:
             logger.error('URL Status Code: {}'.format(file.status_code))
             return 'Error'
-
-        if not bool(out_dir) ^ show:
-            raise ValueError('Arguments `out_dir` and `show` are exclusive.')
 
         if show:
             print(try_decode(file.content), end='')
@@ -102,10 +119,15 @@ def download_file(user, password, url, out_dir=None, show=False,
                     output.write(chunk)
                     if raw:
                         continue
-                    print_progress(i + 1, chunk_count, bar_length=50,
-                                   prefix='Downloading Progress:')
-            logger.debug('downloaded size: {}'.format(
-                os.path.getsize(save_path)))
+                    print_progress(
+                        i + 1,
+                        chunk_count,
+                        bar_length=50,
+                        prefix='Downloading Progress:',
+                    )
+            logger.debug(
+                'downloaded size: {}'.format(os.path.getsize(save_path))
+            )
 
     except requests.exceptions.ConnectionError as e:
         logger.error(e)
@@ -123,14 +145,13 @@ def download_file_native(user, password, url, out_dir=None, show=False,
 
     The return values are:
         `Completed`     -- if downloading has been completed
-        empty string    -- show action has been completed
+        ``              -- show action has been completed
         `Error`         -- in case of any error
     """
+    check_exclusive_positional_args(out_dir, show)
+
     try:
         file = url_get(url, user, password)
-
-        if not bool(out_dir) ^ show:
-            raise ValueError('Arguments `out_dir` and `show` are exclusive.')
 
         if show:
             print(try_decode(file.read()), end='')
@@ -144,11 +165,7 @@ def download_file_native(user, password, url, out_dir=None, show=False,
             except OSError:
                 pass
 
-            if sys.version_info >= (3, 0):
-                file_size = int(file.info()['content-length'])
-            else:
-                file_size = int(file.info().getheader(
-                    'Content-Length').strip())
+            file_size = get_content_length_native(file)
             logger.debug('file size: {}'.format(file_size))
             chunk_size = 1024
             logger.debug('chunk size: {}'.format(chunk_size))
@@ -161,10 +178,15 @@ def download_file_native(user, password, url, out_dir=None, show=False,
                     output.write(chunk)
                     if raw:
                         continue
-                    print_progress(i + 1, chunk_count, bar_length=50,
-                                   prefix='Downloading Progress:')
-            logger.debug('downloaded size: {}'.format(
-                os.path.getsize(save_path)))
+                    print_progress(
+                        i + 1,
+                        chunk_count,
+                        bar_length=50,
+                        prefix='Downloading Progress:',
+                    )
+            logger.debug(
+                'downloaded size: {}'.format(os.path.getsize(save_path))
+            )
 
     except HTTPError as e:
         logger.error(e)
@@ -177,6 +199,25 @@ def download_file_native(user, password, url, out_dir=None, show=False,
         return 'Error'
     else:
         return '' if show else 'Completed'
+
+
+def check_exclusive_positional_args(arga, argb):
+    if not bool(arga) ^ bool(argb):
+        raise ValueError(
+            'Only one of the exclusive positional args must be specified.'
+        )
+
+
+def get_content_length_native(file):
+    if sys.version_info >= (3, 0):
+        length = file.info()['content-length']
+    else:
+        length = file.info().getheader('Content-Length')
+
+    if length is not None:
+        return int(length)
+
+    raise ValueError('Content-Length can not be of NoneType')
 
 
 def url_get(url, user, password):
@@ -231,10 +272,10 @@ def try_decode(byte_string):
 
 
 def parse_args(argv):
-    if sys.version_info < (2, 7, 15):
-        return _parse_args_optparse(argv)
-    else:
+    try:
         return _parse_args_argparse(argv)
+    except:
+        return _parse_args_optparse(argv)
 
 
 def _parse_args_optparse(argv):
@@ -252,7 +293,7 @@ def _parse_args_optparse(argv):
         def get_usage(self, *args, **kwargs):
             self.usage = "%%prog %s [options]\n\nPositional Arguments:\n %s" % \
                 (' '.join(["<%s>" % arg[0] for arg in self.posargs]),
-                 '\n '.join(["%s: %s" % (arg) for arg in self.posargs]))
+                 '\n '.join(["%s:\t\t%s" % (arg) for arg in self.posargs]))
             return super(PAOptionParser, self).get_usage(*args, **kwargs)
 
         def parse_args(self, *args, **kwargs):
@@ -321,6 +362,8 @@ def _parse_args_optparse(argv):
     parser.values.ensure_value('out_set_explicitly', False)
     if options.out_set_explicitly and options.show:
         parser.error('options -o and -s are mutually exclusive')
+    if not (options.out_set_explicitly or options.show):
+        parser.error('option -o or -s is required')
 
     return options
 
@@ -393,6 +436,7 @@ def initialize_logging(debug=False):
 def run(argv):
     args = parse_args(argv)
     initialize_logging(args.debug)
+    logger.debug(args)
 
     opts = dict(
         user=args.user,
@@ -406,6 +450,7 @@ def run(argv):
         opts.update(show=args.show)
     if args.raw:
         opts.update(raw=args.raw)
+    logger.debug(opts)
 
     if not NATIVE:
         logger.debug('using `requests` library')
